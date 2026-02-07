@@ -60,4 +60,4 @@ cmake -B build -DWHISPER_AGENT_DEFAULT_COMMAND=bash
 
 ## License
 
-MIT
+GPLv3
