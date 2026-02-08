@@ -1,5 +1,8 @@
 #include "main_frame.h"
 
+#include <wx/stdpaths.h>
+#include <wx/filename.h>
+
 // ===================================================================
 // TranscriptionDialog
 // ===================================================================
@@ -87,6 +90,8 @@ MainFrame::MainFrame(const wxString& command)
     : wxFrame(nullptr, wxID_ANY, "Whisper Agent", wxDefaultPosition, wxSize(1400, 900))
 {
     SetMinSize(wxSize(800, 600));
+    LoadRecentFolders();
+    CreateMenuBar();
     CreateUI(command);
 
     if (!m_transcriber.Init(WHISPER_MODEL_PATH)) {
@@ -128,6 +133,136 @@ MainFrame::~MainFrame() {
         m_dlg->Destroy();
         m_dlg = nullptr;
     }
+}
+
+// -------------------------------------------------------------------
+// Menu bar
+// -------------------------------------------------------------------
+
+void MainFrame::CreateMenuBar() {
+    auto* menuBar = new wxMenuBar();
+    auto* fileMenu = new wxMenu();
+
+    fileMenu->Append(wxID_OPEN, "Open &Folder...\tCtrl+O");
+
+    m_recentMenu = new wxMenu();
+    RebuildRecentMenu();
+    fileMenu->AppendSubMenu(m_recentMenu, "Open &Recent");
+
+    fileMenu->AppendSeparator();
+    fileMenu->Append(wxID_EXIT, "&Quit\tCtrl+Q");
+
+    menuBar->Append(fileMenu, "&File");
+    SetMenuBar(menuBar);
+
+    Bind(wxEVT_MENU, &MainFrame::OnOpenFolder,  this, wxID_OPEN);
+    Bind(wxEVT_MENU, &MainFrame::OnQuit,        this, wxID_EXIT);
+    Bind(wxEVT_MENU, &MainFrame::OnClearRecent,  this, ID_CLEAR_RECENT);
+    Bind(wxEVT_MENU, &MainFrame::OnOpenRecent,   this,
+         ID_RECENT_BASE, ID_RECENT_BASE + MAX_RECENT - 1);
+}
+
+void MainFrame::OnOpenFolder(wxCommandEvent&) {
+    wxDirDialog dlg(this, "Open Folder", wxGetCwd(),
+                    wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+    if (dlg.ShowModal() == wxID_OK)
+        OpenFolder(dlg.GetPath());
+}
+
+void MainFrame::OnOpenRecent(wxCommandEvent& evt) {
+    int idx = evt.GetId() - ID_RECENT_BASE;
+    if (idx >= 0 && idx < static_cast<int>(m_recentFolders.size())) {
+        // Copy the path — the menu item (and its backing data) will be
+        // destroyed by RebuildRecentMenu before GTK finishes processing
+        // the click unless we defer the folder open.
+        wxString path = m_recentFolders[idx];
+        CallAfter([this, path]() { OpenFolder(path); });
+    }
+}
+
+void MainFrame::OnClearRecent(wxCommandEvent&) {
+    // Defer so we don't destroy menu items while GTK is still processing the click.
+    CallAfter([this]() {
+        m_recentFolders.clear();
+        SaveRecentFolders();
+        RebuildRecentMenu();
+    });
+}
+
+void MainFrame::OnQuit(wxCommandEvent&) {
+    Close();
+}
+
+void MainFrame::OpenFolder(const wxString& path) {
+    m_fileTree->SetRootDir(path);
+    m_terminal->Restart(path);
+    AddRecentFolder(path);
+    SetTitle("Whisper Agent \u2014 " + path);
+    SetStatusText(path, 1);
+}
+
+void MainFrame::AddRecentFolder(const wxString& path) {
+    // Remove duplicates
+    m_recentFolders.erase(
+        std::remove(m_recentFolders.begin(), m_recentFolders.end(), path),
+        m_recentFolders.end());
+    // Insert at front
+    m_recentFolders.insert(m_recentFolders.begin(), path);
+    // Cap size
+    if (static_cast<int>(m_recentFolders.size()) > MAX_RECENT)
+        m_recentFolders.resize(MAX_RECENT);
+    SaveRecentFolders();
+    RebuildRecentMenu();
+}
+
+void MainFrame::LoadRecentFolders() {
+    wxString configDir = wxStandardPaths::Get().GetUserConfigDir();
+    wxString configPath = configDir + "/whisper-agent.conf";
+    if (!wxFileExists(configPath)) return;
+
+    wxFileConfig cfg("", "", configPath);
+    cfg.SetPath("/RecentFolders");
+    for (int i = 0; i < MAX_RECENT; ++i) {
+        wxString key = wxString::Format("path%d", i);
+        wxString val;
+        if (cfg.Read(key, &val) && !val.IsEmpty() && wxDirExists(val))
+            m_recentFolders.push_back(val);
+    }
+}
+
+void MainFrame::SaveRecentFolders() {
+    wxString configDir = wxStandardPaths::Get().GetUserConfigDir();
+    wxString configPath = configDir + "/whisper-agent.conf";
+
+    wxFileConfig cfg("", "", configPath);
+    cfg.DeleteGroup("/RecentFolders");
+    cfg.SetPath("/RecentFolders");
+    for (int i = 0; i < static_cast<int>(m_recentFolders.size()); ++i)
+        cfg.Write(wxString::Format("path%d", i), m_recentFolders[i]);
+    cfg.Flush();
+}
+
+void MainFrame::RebuildRecentMenu() {
+    // Clear existing items
+    while (m_recentMenu->GetMenuItemCount() > 0)
+        m_recentMenu->Delete(m_recentMenu->FindItemByPosition(0));
+
+    if (m_recentFolders.empty()) {
+        m_recentMenu->Append(wxID_ANY, "(none)")->Enable(false);
+        return;
+    }
+
+    for (int i = 0; i < static_cast<int>(m_recentFolders.size()); ++i) {
+        wxString label = m_recentFolders[i];
+        // Shorten home prefix for display
+        wxString home = wxGetHomeDir();
+        if (label.StartsWith(home))
+            label = "~" + label.Mid(home.length());
+        m_recentMenu->Append(ID_RECENT_BASE + i, label);
+    }
+
+    m_recentMenu->AppendSeparator();
+    m_recentMenu->Append(ID_CLEAR_RECENT, "Clear Recent");
 }
 
 // -------------------------------------------------------------------

@@ -23,6 +23,7 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const wxString& command)
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);
     SetBackgroundColour(wxColour(30, 30, 30));
+    m_command = command;
 
     // Monospace fonts
     m_font     = wxFont(wxFontInfo(11).Family(wxFONTFAMILY_TELETYPE).FaceName("Monospace"));
@@ -94,11 +95,37 @@ void TerminalPanel::InjectText(const std::string& text) {
         ::write(m_masterFd, text.c_str(), text.length());
 }
 
+void TerminalPanel::Restart(const wxString& workingDir) {
+    // Kill current child
+    m_pollTimer.Stop();
+    if (m_childPid > 0) {
+        kill(m_childPid, SIGHUP);
+        m_childPid = -1;
+    }
+    if (m_masterFd >= 0) {
+        close(m_masterFd);
+        m_masterFd = -1;
+    }
+
+    // Reset terminal state
+    m_scrollback.clear();
+    m_scrollOffset = 0;
+    m_cursorPos = {0, 0};
+    vterm_screen_reset(m_vtScreen, 1);
+    UpdateScrollbar();
+
+    // Spawn new child
+    if (SpawnChild(m_command, workingDir))
+        m_pollTimer.Start(16);
+
+    Refresh();
+}
+
 // ============================================================================
 // PTY management
 // ============================================================================
 
-bool TerminalPanel::SpawnChild(const wxString& command) {
+bool TerminalPanel::SpawnChild(const wxString& command, const wxString& workingDir) {
     struct winsize ws = {};
     ws.ws_row   = static_cast<unsigned short>(m_rows);
     ws.ws_col   = static_cast<unsigned short>(m_cols);
@@ -113,6 +140,9 @@ bool TerminalPanel::SpawnChild(const wxString& command) {
 
     if (m_childPid == 0) {
         // --- Child process ---
+        if (!workingDir.IsEmpty())
+            chdir(workingDir.mb_str().data());
+
         setenv("TERM",      "xterm-256color", 1);
         setenv("COLORTERM", "truecolor",      1);
 

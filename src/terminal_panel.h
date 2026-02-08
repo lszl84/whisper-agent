@@ -14,6 +14,9 @@ public:
     /// Write text directly to the PTY as if the user typed it.
     void InjectText(const std::string& text);
 
+    /// Kill the current process and restart the command in the given directory.
+    void Restart(const wxString& workingDir);
+
 private:
     // wx event handlers
     void OnPaint(wxPaintEvent& evt);
@@ -28,7 +31,7 @@ private:
     void UpdateScrollbar();
 
     // PTY helpers
-    bool SpawnChild(const wxString& command);
+    bool SpawnChild(const wxString& command, const wxString& workingDir = "");
     void ReadPTY();
     void RecalcCellSize();
     void ResizeTerminal();
@@ -74,6 +77,7 @@ private:
     int  m_scrollOffset = 0;         // 0 = bottom, >0 = scrolled up
     static constexpr int MAX_SCROLLBACK = 2000;
 
+    wxString m_command;
     wxTimer      m_pollTimer;
     wxFont       m_font;
     wxFont       m_fontBold;

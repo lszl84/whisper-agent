@@ -2,6 +2,8 @@
 
 #include <wx/wx.h>
 #include <wx/splitter.h>
+#include <wx/fileconf.h>
+#include <vector>
 
 #include "terminal_panel.h"
 #include "file_tree_panel.h"
@@ -38,6 +40,20 @@ public:
 
 private:
     void CreateUI(const wxString& command);
+    void CreateMenuBar();
+
+    // Menu handlers
+    void OnOpenFolder(wxCommandEvent& evt);
+    void OnOpenRecent(wxCommandEvent& evt);
+    void OnClearRecent(wxCommandEvent& evt);
+    void OnQuit(wxCommandEvent& evt);
+
+    // Folder management
+    void OpenFolder(const wxString& path);
+    void AddRecentFolder(const wxString& path);
+    void LoadRecentFolders();
+    void SaveRecentFolders();
+    void RebuildRecentMenu();
 
     // Toolbar
     void OnRecord(wxCommandEvent& evt);
@@ -63,4 +79,11 @@ private:
 
     TranscriptionDialog* m_dlg = nullptr;
     wxTimer              m_enterTimer;
+
+    // Recent folders
+    wxMenu*                 m_recentMenu = nullptr;
+    std::vector<wxString>   m_recentFolders;
+    static constexpr int    MAX_RECENT = 10;
+    static constexpr int    ID_RECENT_BASE = wxID_HIGHEST + 100;
+    static constexpr int    ID_CLEAR_RECENT = wxID_HIGHEST + 200;
 };
