@@ -68,6 +68,9 @@ void TranscriptionDialog::UpdateText(const wxString& text) {
 }
 
 void TranscriptionDialog::Finalize() {
+    if (m_finalized) return;   // idempotent
+    m_finalized = true;
+
     m_status->SetLabel("  Edit then press Enter to send, Esc to cancel");
     m_stopBtn->Hide();
     m_sendBtn->Enable();
@@ -127,8 +130,7 @@ MainFrame::MainFrame(const wxString& command)
 
 MainFrame::~MainFrame() {
     m_transcriber.SetCallback(nullptr);
-    if (m_transcriber.IsRecording())
-        m_transcriber.StopRecording();
+    m_transcriber.CancelRecording();
     if (m_dlg) {
         m_dlg->Destroy();
         m_dlg = nullptr;
@@ -333,6 +335,10 @@ void MainFrame::CreateUI(const wxString& command) {
 void MainFrame::OnRecord(wxCommandEvent&) {
     if (m_dlg) return;   // already open
 
+    // Start capturing audio FIRST so nothing the user says is lost
+    // while the dialog is being created and shown.
+    m_transcriber.StartRecording();
+
     m_dlg = new TranscriptionDialog(this);
 
     // Bind dialog button events
@@ -344,8 +350,6 @@ void MainFrame::OnRecord(wxCommandEvent&) {
     m_dlg->CentreOnParent();
     m_dlg->Show();
     m_recordBtn->Disable();
-
-    m_transcriber.StartRecording();
     SetStatusText("Listening...");
 }
 
@@ -354,19 +358,19 @@ void MainFrame::OnRecord(wxCommandEvent&) {
 // -------------------------------------------------------------------
 
 void MainFrame::OnDlgStop(wxCommandEvent&) {
-    if (m_transcriber.IsRecording()) {
-        m_transcriber.StopRecording();
-        // Final transcription will arrive via OnTranscription → Finalize()
-    }
-    // If already stopped, just let the user keep editing
+    m_transcriber.StopRecording();
+    // Immediately finalize the dialog with whatever partial text is
+    // currently displayed — no waiting for a final inference pass.
+    if (m_dlg)
+        m_dlg->Finalize();
 }
 
 void MainFrame::OnDlgSend(wxCommandEvent&) {
     if (!m_dlg) return;
 
-    // If still recording, stop first
-    if (m_transcriber.IsRecording())
-        m_transcriber.StopRecording();
+    // If still recording, cancel — we already have the text from the
+    // dialog, so there's no need for a final transcription pass.
+    m_transcriber.CancelRecording();
 
     wxString text = m_dlg->GetText();
     CloseDialog();
@@ -381,15 +385,15 @@ void MainFrame::OnDlgSend(wxCommandEvent&) {
 }
 
 void MainFrame::OnDlgCancel(wxCommandEvent&) {
-    if (m_transcriber.IsRecording())
-        m_transcriber.StopRecording();
+    // Cancel aborts any in-progress inference and joins the thread,
+    // so the next StartRecording() won't block.
+    m_transcriber.CancelRecording();
     SetStatusText("Cancelled");
     CloseDialog();
 }
 
 void MainFrame::OnDlgClose(wxCloseEvent& evt) {
-    if (m_transcriber.IsRecording())
-        m_transcriber.StopRecording();
+    m_transcriber.CancelRecording();
     CloseDialog();
     evt.Skip();
 }
@@ -416,13 +420,9 @@ void MainFrame::OnFileSelected(wxCommandEvent& evt) {
 // -------------------------------------------------------------------
 
 void MainFrame::OnTranscription(wxThreadEvent& evt) {
-    if (!m_dlg) return;
+    // Ignore stale events that arrive after the dialog was closed or
+    // after the user clicked Stop (dialog already finalized / editable).
+    if (!m_dlg || m_dlg->IsFinalized()) return;
 
-    const bool   isFinal = evt.GetInt() != 0;
-    const wxString text  = evt.GetString();
-
-    m_dlg->UpdateText(text);
-
-    if (isFinal)
-        m_dlg->Finalize();
+    m_dlg->UpdateText(evt.GetString());
 }

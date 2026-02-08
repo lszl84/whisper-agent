@@ -63,7 +63,7 @@ include(cmake/BuildLibvterm.cmake)
 # ============================================================================
 
 set(WHISPER_MODEL_DIR "${CMAKE_BINARY_DIR}/models" CACHE PATH "Whisper model directory")
-set(WHISPER_MODEL_NAME "ggml-base.en.bin" CACHE STRING "Whisper model filename")
+set(WHISPER_MODEL_NAME "ggml-tiny.en.bin" CACHE STRING "Whisper model filename")
 set(WHISPER_MODEL_PATH "${WHISPER_MODEL_DIR}/${WHISPER_MODEL_NAME}")
 
 if(NOT EXISTS "${WHISPER_MODEL_PATH}")

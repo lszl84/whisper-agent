@@ -1,9 +1,19 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "transcriber.h"
 #include <whisper.h>
+#include <chrono>
+#include <algorithm>
 
-static constexpr int    STREAM_INTERVAL_MS  = 2000;  // partial transcription every 2 s
-static constexpr int    MIN_SAMPLES         = WHISPER_SAMPLE_RATE / 2;  // need ≥0.5 s
+static constexpr int INITIAL_INTERVAL_MS   = 300;                      // first partial fires quickly
+static constexpr int STREAM_INTERVAL_MS    = 400;                      // subsequent partials
+static constexpr int MIN_SAMPLES           = WHISPER_SAMPLE_RATE / 4;  // need ≥0.25 s of audio
+static constexpr int MAX_PARTIAL_SAMPLES   = WHISPER_SAMPLE_RATE * 30; // 30 s sliding window for partials
+static constexpr int SHUTDOWN_TIMEOUT_MS   = 200;                      // max wait for thread on shutdown
+
+static int inferenceThreadCount() {
+    unsigned n = std::thread::hardware_concurrency();
+    return static_cast<int>(std::max(4u, std::min(n, 16u)));
+}
 
 // ============================================================================
 // Lifecycle
@@ -12,22 +22,54 @@ static constexpr int    MIN_SAMPLES         = WHISPER_SAMPLE_RATE / 2;  // need 
 Transcriber::Transcriber() {}
 
 Transcriber::~Transcriber() {
-    m_recording = false;
+    m_recording       = false;
+    m_cancelled       = true;
+    m_abortInference  = true;
     m_stopCv.notify_all();
 
-    if (m_deviceInit) {
-        ma_device_stop(&m_device);
-        ma_device_uninit(&m_device);
+    if (m_warmupThread.joinable())
+        m_warmupThread.join();
+
+    StopDevice();
+
+    if (m_streamThread.joinable()) {
+        // Give the thread a moment to notice the abort flag and exit.
+        // If it's stuck inside whisper's encoder pass (which can't be
+        // interrupted), detach it — the process is exiting anyway and
+        // the OS will reclaim resources.
+        {
+            std::unique_lock<std::mutex> lk(m_stopMutex);
+            m_stopCv.wait_for(lk, std::chrono::milliseconds(SHUTDOWN_TIMEOUT_MS),
+                              [this] { return m_threadDone.load(); });
+        }
+        if (m_threadDone.load()) {
+            m_streamThread.join();
+        } else {
+            m_streamThread.detach();
+            m_whisperCtx = nullptr;   // thread still owns it — don't free
+        }
     }
-    if (m_streamThread.joinable())
-        m_streamThread.join();
+
     if (m_whisperCtx)
         whisper_free(m_whisperCtx);
 }
 
 bool Transcriber::Init(const std::string& modelPath) {
     m_whisperCtx = whisper_init_from_file(modelPath.c_str());
-    return m_whisperCtx != nullptr;
+    if (!m_whisperCtx) return false;
+
+    // Run a throwaway inference on silence so whisper pre-allocates its
+    // internal buffers now instead of on the first real recording.
+    // This runs on a background thread so the UI isn't blocked.
+    // The streaming loop polls m_warmupDone before its first inference —
+    // audio capture starts immediately regardless.
+    m_warmupThread = std::thread([this] {
+        std::vector<float> silence(WHISPER_SAMPLE_RATE / 2, 0.0f); // 0.5 s
+        RunWhisper(silence, /*partial=*/true);
+        m_warmupDone = true;
+    });
+
+    return true;
 }
 
 // ============================================================================
@@ -37,9 +79,17 @@ bool Transcriber::Init(const std::string& modelPath) {
 void Transcriber::StartRecording() {
     if (m_recording || !m_whisperCtx) return;
 
-    // Join any previous streaming thread
+    // Ensure any previous streaming thread is fully stopped.
+    m_cancelled      = true;
+    m_abortInference = true;
+    m_stopCv.notify_all();
     if (m_streamThread.joinable())
         m_streamThread.join();
+
+    // Reset flags for the new session
+    m_cancelled      = false;
+    m_abortInference = false;
+    m_threadDone     = false;
 
     {
         std::lock_guard<std::mutex> lk(m_audioMutex);
@@ -74,17 +124,38 @@ void Transcriber::StartRecording() {
 void Transcriber::StopRecording() {
     if (!m_recording) return;
 
-    // Signal the streaming thread to wake up and finish
-    m_recording = false;
+    // Stop the microphone and tell the streaming loop to exit without
+    // doing a final pass.  The UI will keep whatever text the last
+    // partial produced — no need to wait for another inference.
+    m_recording      = false;
+    m_cancelled      = true;
+    m_abortInference = true;
     m_stopCv.notify_all();
 
+    StopDevice();
+    // Thread exits on its own.  Joined in StartRecording() or destructor.
+}
+
+void Transcriber::CancelRecording() {
+    // Identical flags to StopRecording — just a semantic alias for
+    // "discard the result".
+    if (!m_recording && !m_streamThread.joinable()) return;
+
+    m_recording      = false;
+    m_cancelled      = true;
+    m_abortInference = true;
+    m_stopCv.notify_all();
+
+    StopDevice();
+    // Thread exits on its own.  Joined in StartRecording() or destructor.
+}
+
+void Transcriber::StopDevice() {
     if (m_deviceInit) {
         ma_device_stop(&m_device);
         ma_device_uninit(&m_device);
         m_deviceInit = false;
     }
-    // Don't join here — the thread does a final transcription pass
-    // asynchronously and calls the callback when done.
 }
 
 // ============================================================================
@@ -108,50 +179,61 @@ void Transcriber::AudioDataCallback(ma_device* pDevice, void* /*pOutput*/,
 // ============================================================================
 
 void Transcriber::StreamingLoop() {
-    // --- Partial results while recording ---
-    while (m_recording) {
+    // Wait for the startup warmup inference to finish before touching
+    // the whisper context.  Audio is already being captured into
+    // m_audioBuffer while we wait, so nothing the user says is lost.
+    while (!m_warmupDone.load()) {
+        if (m_cancelled.load()) {
+            m_threadDone = true;
+            m_stopCv.notify_all();
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    bool firstIter = true;
+
+    while (m_recording && !m_cancelled) {
+        int interval = firstIter ? INITIAL_INTERVAL_MS : STREAM_INTERVAL_MS;
+        firstIter = false;
+
         {
             std::unique_lock<std::mutex> lk(m_stopMutex);
-            m_stopCv.wait_for(lk, std::chrono::milliseconds(STREAM_INTERVAL_MS),
-                              [this] { return !m_recording.load(); });
+            m_stopCv.wait_for(lk, std::chrono::milliseconds(interval),
+                              [this] { return !m_recording.load() || m_cancelled.load(); });
         }
-        if (!m_recording) break;
+        if (!m_recording || m_cancelled) break;
 
+        // Snapshot the audio — use a sliding window to keep inference fast
         std::vector<float> audio;
         {
             std::lock_guard<std::mutex> lk(m_audioMutex);
-            audio = m_audioBuffer;          // snapshot (copy, not move)
+            size_t n     = m_audioBuffer.size();
+            size_t start = (n > static_cast<size_t>(MAX_PARTIAL_SAMPLES))
+                         ? n - MAX_PARTIAL_SAMPLES : 0;
+            audio.assign(m_audioBuffer.begin() + start, m_audioBuffer.end());
         }
         if (static_cast<int>(audio.size()) < MIN_SAMPLES) continue;
 
-        std::string text = RunWhisper(audio);
+        m_abortInference = false;  // allow this inference to run
+        std::string text = RunWhisper(audio, /*partial=*/true);
+        if (m_abortInference || m_cancelled) break;  // aborted mid-inference
 
         std::lock_guard<std::mutex> lk(m_cbMutex);
         if (m_callback)
             m_callback(text, /*is_final=*/false);
     }
 
-    // --- Final pass after recording stopped ---
-    std::vector<float> audio;
-    {
-        std::lock_guard<std::mutex> lk(m_audioMutex);
-        audio.swap(m_audioBuffer);
-    }
-
-    std::string text;
-    if (!audio.empty())
-        text = RunWhisper(audio);
-
-    std::lock_guard<std::mutex> lk(m_cbMutex);
-    if (m_callback)
-        m_callback(text, /*is_final=*/true);
+    // Signal that the thread is done so the destructor doesn't block.
+    m_threadDone = true;
+    m_stopCv.notify_all();
 }
 
 // ============================================================================
 // Whisper inference helper
 // ============================================================================
 
-std::string Transcriber::RunWhisper(const std::vector<float>& audio) {
+std::string Transcriber::RunWhisper(const std::vector<float>& audio, bool partial) {
     if (!m_whisperCtx || audio.empty()) return "";
 
     whisper_full_params params =
@@ -160,9 +242,15 @@ std::string Transcriber::RunWhisper(const std::vector<float>& audio) {
     params.print_special    = false;
     params.print_realtime   = false;
     params.print_timestamps = false;
-    params.single_segment   = false;
+    params.single_segment   = partial;   // faster for partial previews
     params.language         = "en";
-    params.n_threads        = 4;
+    params.n_threads        = inferenceThreadCount();
+
+    // Allow aborting inference when the user cancels or stops
+    params.abort_callback = [](void* data) -> bool {
+        return static_cast<Transcriber*>(data)->m_abortInference.load();
+    };
+    params.abort_callback_user_data = this;
 
     if (whisper_full(m_whisperCtx, params,
                      audio.data(), static_cast<int>(audio.size())) != 0)

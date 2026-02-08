@@ -20,13 +20,15 @@ public:
 
     void UpdateText(const wxString& text);
     void Finalize();                          // recording done — let user edit & send
+    bool IsFinalized() const { return m_finalized; }
     wxString GetText() const;
 
 private:
-    wxTextCtrl*   m_text     = nullptr;
-    wxStaticText* m_status   = nullptr;
-    wxButton*     m_stopBtn  = nullptr;
-    wxButton*     m_sendBtn  = nullptr;
+    wxTextCtrl*   m_text      = nullptr;
+    wxStaticText* m_status    = nullptr;
+    wxButton*     m_stopBtn   = nullptr;
+    wxButton*     m_sendBtn   = nullptr;
+    bool          m_finalized = false;
 };
 
 // ---------------------------------------------------------------------------

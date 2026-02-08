@@ -20,11 +20,11 @@ public:
     bool Init(const std::string& modelPath);
 
     void StartRecording();
-    void StopRecording();
+    void StopRecording();              // stop mic + skip final pass (non-blocking)
+    void CancelRecording();            // same as Stop but semantically "discard"
     bool IsRecording() const { return m_recording.load(); }
 
     /// Callback receives (transcribed_text, is_final).
-    /// Partial results arrive while recording; the final result arrives after Stop.
     /// Called from a background thread.
     void SetCallback(std::function<void(const std::string&, bool)> cb) {
         std::lock_guard<std::mutex> lk(m_cbMutex);
@@ -35,11 +35,15 @@ private:
     static void AudioDataCallback(ma_device* pDevice, void* pOutput,
                                   const void* pInput, ma_uint32 frameCount);
 
-    /// Background thread: periodically transcribes, then does a final pass.
+    /// Background thread: periodically transcribes while recording.
     void StreamingLoop();
 
-    /// Run whisper inference on audio samples. Thread-safe via m_whisperMutex.
-    std::string RunWhisper(const std::vector<float>& audio);
+    /// Run whisper inference on audio samples.
+    /// @param partial  If true, uses single-segment mode for speed.
+    std::string RunWhisper(const std::vector<float>& audio, bool partial);
+
+    /// Stop the audio device (idempotent).
+    void StopDevice();
 
     whisper_context* m_whisperCtx = nullptr;
 
@@ -49,6 +53,9 @@ private:
     std::vector<float> m_audioBuffer;
     std::mutex         m_audioMutex;
     std::atomic<bool>  m_recording{false};
+    std::atomic<bool>  m_cancelled{false};        // true → skip final pass entirely
+    std::atomic<bool>  m_abortInference{false};   // true → whisper_full returns early
+    std::atomic<bool>  m_threadDone{true};         // true when streaming thread has exited
 
     std::thread             m_streamThread;
     std::mutex              m_stopMutex;
@@ -56,4 +63,7 @@ private:
 
     std::function<void(const std::string&, bool)> m_callback;
     std::mutex                                    m_cbMutex;
+
+    std::thread             m_warmupThread;          // runs a throwaway inference at startup
+    std::atomic<bool>       m_warmupDone{false};     // true once warmup inference finishes
 };
