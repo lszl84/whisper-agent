@@ -6,7 +6,7 @@
 #include <sys/types.h>
 #include <vector>
 
-class TerminalPanel : public wxPanel {
+class TerminalPanel : public wxWindow {
 public:
     TerminalPanel(wxWindow* parent, const wxString& command = "bash");
     ~TerminalPanel();
@@ -22,6 +22,7 @@ private:
     void OnKeyDown(wxKeyEvent& evt);
     void OnTimer(wxTimerEvent& evt);
     void OnFocus(wxFocusEvent& evt);
+    void OnMouseLeftDown(wxMouseEvent& evt);
     void OnMouseWheel(wxMouseEvent& evt);
     void OnScrollbar(wxScrollEvent& evt);
     void UpdateScrollbar();

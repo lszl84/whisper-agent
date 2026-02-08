@@ -17,8 +17,8 @@ enum { TIMER_PTY_POLL = 1 };
 // ============================================================================
 
 TerminalPanel::TerminalPanel(wxWindow* parent, const wxString& command)
-    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
-              wxWANTS_CHARS | wxNO_BORDER)
+    : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+               wxWANTS_CHARS | wxNO_BORDER)
     , m_pollTimer(this, TIMER_PTY_POLL)
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);
@@ -51,6 +51,7 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const wxString& command)
     m_scrollbar = new wxScrollBar(this, wxID_ANY, wxDefaultPosition,
                                   wxDefaultSize, wxSB_VERTICAL);
     m_scrollbar->SetScrollbar(0, m_rows, m_rows, m_rows);
+    m_scrollbar->SetCanFocus(false);   // focus must stay on the panel itself
 
     // --- Event bindings ---
     Bind(wxEVT_PAINT,       &TerminalPanel::OnPaint,      this);
@@ -60,6 +61,7 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const wxString& command)
     Bind(wxEVT_TIMER,       &TerminalPanel::OnTimer,       this, TIMER_PTY_POLL);
     Bind(wxEVT_SET_FOCUS,   &TerminalPanel::OnFocus,       this);
     Bind(wxEVT_KILL_FOCUS,  &TerminalPanel::OnFocus,       this);
+    Bind(wxEVT_LEFT_DOWN,   &TerminalPanel::OnMouseLeftDown, this);
     Bind(wxEVT_MOUSEWHEEL,  &TerminalPanel::OnMouseWheel,  this);
     m_scrollbar->Bind(wxEVT_SCROLL_THUMBTRACK,   &TerminalPanel::OnScrollbar, this);
     m_scrollbar->Bind(wxEVT_SCROLL_CHANGED,      &TerminalPanel::OnScrollbar, this);
@@ -406,6 +408,11 @@ void TerminalPanel::OnTimer(wxTimerEvent&) {
 void TerminalPanel::OnFocus(wxFocusEvent& evt) {
     Refresh();
     evt.Skip();
+}
+
+void TerminalPanel::OnMouseLeftDown(wxMouseEvent& evt) {
+    SetFocus();
+    Refresh();
 }
 
 void TerminalPanel::OnMouseWheel(wxMouseEvent& evt) {

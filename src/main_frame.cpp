@@ -83,11 +83,11 @@ wxString TranscriptionDialog::GetText() const {
 // MainFrame
 // ===================================================================
 
-MainFrame::MainFrame()
+MainFrame::MainFrame(const wxString& command)
     : wxFrame(nullptr, wxID_ANY, "Whisper Agent", wxDefaultPosition, wxSize(1400, 900))
 {
     SetMinSize(wxSize(800, 600));
-    CreateUI();
+    CreateUI(command);
 
     if (!m_transcriber.Init(WHISPER_MODEL_PATH)) {
         wxLogWarning("Could not load whisper model from:\n%s\n\n"
@@ -115,6 +115,9 @@ MainFrame::MainFrame()
     }, m_enterTimer.GetId());
 
     Centre();
+
+    // Give the terminal keyboard focus once the window is fully shown.
+    CallAfter([this]() { m_terminal->SetFocus(); });
 }
 
 MainFrame::~MainFrame() {
@@ -131,7 +134,7 @@ MainFrame::~MainFrame() {
 // UI
 // -------------------------------------------------------------------
 
-void MainFrame::CreateUI() {
+void MainFrame::CreateUI(const wxString& command) {
     // Splitters
     auto* mainSplit = new wxSplitterWindow(
         this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
@@ -148,7 +151,8 @@ void MainFrame::CreateUI() {
         wxSP_3D | wxSP_LIVE_UPDATE);
 
     m_editor   = new EditorPanel(rightSplit);
-    m_terminal = new TerminalPanel(rightSplit, WHISPER_AGENT_DEFAULT_COMMAND);
+    wxString cmd = command.IsEmpty() ? wxString(WHISPER_AGENT_DEFAULT_COMMAND) : command;
+    m_terminal = new TerminalPanel(rightSplit, cmd);
 
     // Give most vertical space to the terminal
     rightSplit->SplitHorizontally(m_editor, m_terminal, 200);

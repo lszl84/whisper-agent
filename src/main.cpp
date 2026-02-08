@@ -4,7 +4,10 @@
 class WhisperAgentApp : public wxApp {
 public:
     bool OnInit() override {
-        auto* frame = new MainFrame();
+        wxString command;
+        if (argc > 1)
+            command = argv[1];
+        auto* frame = new MainFrame(command);
         frame->Show();
         return true;
     }

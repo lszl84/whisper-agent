@@ -33,11 +33,11 @@ private:
 
 class MainFrame : public wxFrame {
 public:
-    MainFrame();
+    MainFrame(const wxString& command = "");
     ~MainFrame();
 
 private:
-    void CreateUI();
+    void CreateUI(const wxString& command);
 
     // Toolbar
     void OnRecord(wxCommandEvent& evt);
