@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2d2d30"/>
+      <stop offset="100%" stop-color="#1e1e1e"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded background -->
+  <rect width="256" height="256" rx="48" ry="48" fill="url(#bg)"/>
+  <!-- Terminal prompt ">_" -->
+  <text x="32" y="200" font-family="monospace" font-weight="bold" font-size="120" fill="#4ec9b0">
+    &gt;<tspan fill="#569cd6">_</tspan>
+  </text>
+  <!-- Microphone body -->
+  <rect x="152" y="36" width="44" height="80" rx="22" ry="22" fill="#c586c0"/>
+  <!-- Microphone stand arc -->
+  <path d="M142,100 Q142,146 174,146 Q206,146 206,100" fill="none" stroke="#c586c0" stroke-width="8" stroke-linecap="round"/>
+  <!-- Microphone stand stem -->
+  <line x1="174" y1="146" x2="174" y2="172" stroke="#c586c0" stroke-width="8" stroke-linecap="round"/>
+  <!-- Microphone stand base -->
+  <line x1="156" y1="172" x2="192" y2="172" stroke="#c586c0" stroke-width="8" stroke-linecap="round"/>
+</svg>

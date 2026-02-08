@@ -49,6 +49,29 @@ By default the terminal runs `agent` (the Cursor CLI). You can change this at co
 cmake -B build -DWHISPER_AGENT_DEFAULT_COMMAND=bash
 ```
 
+## Install (Linux)
+
+After building, run the install script to copy the binary, icon, and desktop shortcut to `~/.local`:
+
+```bash
+./install.sh
+```
+
+This installs to `~/.local/bin`, `~/.local/share/icons`, and `~/.local/share/applications`. The app will appear in your desktop environment's application launcher.
+
+Make sure `~/.local/bin` is in your `PATH` (most distros include it by default):
+
+```bash
+# Add to ~/.bashrc or ~/.profile if needed
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+To install to a different prefix:
+
+```bash
+PREFIX=/usr/local sudo ./install.sh
+```
+
 ## Usage
 
 1. Browse files in the left panel; click to preview in the editor

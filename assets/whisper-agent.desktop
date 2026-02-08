@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Whisper Agent
+Comment=Voice-driven terminal with file browser and editor
+Exec=whisper-agent
+Icon=whisper-agent
+Terminal=false
+Type=Application
+Categories=Development;Utility;
+Keywords=terminal;voice;whisper;agent;
