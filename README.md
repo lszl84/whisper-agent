@@ -21,7 +21,7 @@ All C/C++ dependencies are fetched automatically via CMake `FetchContent`:
 | [miniaudio](https://github.com/mackron/miniaudio) | 0.11.21 | Audio capture |
 | [libvterm](https://github.com/neovim/libvterm) | 0.3.3 | Terminal emulation |
 
-The Whisper model (`ggml-base.en.bin`, ~140 MB) is downloaded automatically during CMake configure.
+The Whisper model (`ggml-tiny.en.bin`, ~75 MB) is downloaded automatically during CMake configure.
 
 ### System requirements
 
@@ -43,7 +43,13 @@ cmake --build build -j$(nproc)
 ./build/whisper-agent
 ```
 
-By default the terminal runs `agent` (the Cursor CLI). You can change this at configure time:
+By default the embedded terminal runs `claude` (the [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI). You can override the command at runtime by passing it as an argument:
+
+```bash
+./build/whisper-agent bash
+```
+
+To change the default permanently, set the CMake cache variable at configure time:
 
 ```bash
 cmake -B build -DWHISPER_AGENT_DEFAULT_COMMAND=bash

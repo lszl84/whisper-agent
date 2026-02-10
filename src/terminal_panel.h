@@ -8,7 +8,8 @@
 
 class TerminalPanel : public wxWindow {
 public:
-    TerminalPanel(wxWindow* parent, const wxString& command = "bash");
+    TerminalPanel(wxWindow* parent, const wxString& command = "bash",
+                  const wxString& workingDir = "");
     ~TerminalPanel();
 
     /// Write text directly to the PTY as if the user typed it.

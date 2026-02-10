@@ -272,12 +272,16 @@ void MainFrame::RebuildRecentMenu() {
 // -------------------------------------------------------------------
 
 void MainFrame::CreateUI(const wxString& command) {
+    // Restore the last workspace, or fall back to the current directory.
+    wxString initialDir = m_recentFolders.empty() ? wxGetCwd()
+                                                  : m_recentFolders.front();
+
     // Splitters
     auto* mainSplit = new wxSplitterWindow(
         this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
         wxSP_3D | wxSP_LIVE_UPDATE);
 
-    m_fileTree = new FileTreePanel(mainSplit, wxGetCwd());
+    m_fileTree = new FileTreePanel(mainSplit, initialDir);
 
     // Right side: editor on top, terminal + record button on bottom
     auto* rightPanel = new wxPanel(mainSplit);
@@ -289,7 +293,7 @@ void MainFrame::CreateUI(const wxString& command) {
 
     m_editor   = new EditorPanel(rightSplit);
     wxString cmd = command.IsEmpty() ? wxString(WHISPER_AGENT_DEFAULT_COMMAND) : command;
-    m_terminal = new TerminalPanel(rightSplit, cmd);
+    m_terminal = new TerminalPanel(rightSplit, cmd, initialDir);
 
     // Give most vertical space to the terminal
     rightSplit->SplitHorizontally(m_editor, m_terminal, 200);
@@ -326,6 +330,10 @@ void MainFrame::CreateUI(const wxString& command) {
 
     CreateStatusBar(2);
     SetStatusText("Ready");
+    if (!m_recentFolders.empty()) {
+        SetTitle("Whisper Agent \u2014 " + initialDir);
+        SetStatusText(initialDir, 1);
+    }
 }
 
 // -------------------------------------------------------------------

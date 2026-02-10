@@ -16,7 +16,8 @@ enum { TIMER_PTY_POLL = 1 };
 // Construction / destruction
 // ============================================================================
 
-TerminalPanel::TerminalPanel(wxWindow* parent, const wxString& command)
+TerminalPanel::TerminalPanel(wxWindow* parent, const wxString& command,
+                             const wxString& workingDir)
     : wxWindow(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                wxWANTS_CHARS | wxNO_BORDER)
     , m_pollTimer(this, TIMER_PTY_POLL)
@@ -72,7 +73,7 @@ TerminalPanel::TerminalPanel(wxWindow* parent, const wxString& command)
     m_scrollbar->Bind(wxEVT_SCROLL_PAGEDOWN,     &TerminalPanel::OnScrollbar, this);
 
     // --- Spawn child process in a PTY ---
-    if (SpawnChild(command))
+    if (SpawnChild(command, workingDir))
         m_pollTimer.Start(16);   // ~60 fps polling
 }
 
