@@ -186,8 +186,8 @@ void TerminalPanel::ReadPTY() {
     }
 
     if (didRead) {
-        // New output → snap to bottom
-        m_scrollOffset = 0;
+        // Only auto-scroll if user is already at the bottom;
+        // if they've scrolled up to read history, don't yank them back.
         UpdateScrollbar();
         Refresh();
     }
