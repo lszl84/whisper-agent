@@ -3,6 +3,7 @@
 #include <wx/dir.h>
 #include <wx/filename.h>
 #include <algorithm>
+#include <set>
 #include <vector>
 
 wxDEFINE_EVENT(EVT_FILE_SELECTED, wxCommandEvent);
@@ -16,6 +17,8 @@ static bool IsHiddenDir(const wxString& name) {
 FileTreePanel::FileTreePanel(wxWindow* parent, const wxString& rootDir)
     : wxPanel(parent, wxID_ANY)
     , m_rootDir(rootDir)
+    , m_refreshTimer(this)
+    , m_pollTimer(this)
 {
     SetBackgroundColour(wxColour(37, 37, 38));
 
@@ -35,8 +38,15 @@ FileTreePanel::FileTreePanel(wxWindow* parent, const wxString& rootDir)
 
     m_tree->Bind(wxEVT_TREE_ITEM_EXPANDING,  &FileTreePanel::OnItemExpanding, this);
     m_tree->Bind(wxEVT_TREE_SEL_CHANGED,    &FileTreePanel::OnItemActivated, this);
+    Bind(wxEVT_TIMER, &FileTreePanel::OnRefreshTimer, this, m_refreshTimer.GetId());
+    Bind(wxEVT_TIMER, &FileTreePanel::OnPollTimer, this, m_pollTimer.GetId());
+    Bind(wxEVT_FSWATCHER, &FileTreePanel::OnFileSystemEvent, this);
 
     SetRootDir(rootDir);
+}
+
+FileTreePanel::~FileTreePanel() {
+    delete m_watcher;
 }
 
 void FileTreePanel::SetRootDir(const wxString& dir) {
@@ -44,6 +54,8 @@ void FileTreePanel::SetRootDir(const wxString& dir) {
     m_tree->DeleteAllItems();
     auto root = m_tree->AddRoot("root");
     PopulateChildren(root, dir);
+    StartWatching();
+    m_pollTimer.Start(2000);
 }
 
 void FileTreePanel::PopulateChildren(const wxTreeItemId& parentItem, const wxString& path) {
@@ -105,4 +117,92 @@ void FileTreePanel::OnItemActivated(wxTreeEvent& evt) {
     wxCommandEvent fileEvt(EVT_FILE_SELECTED);
     fileEvt.SetString(data->fullPath);
     wxPostEvent(wxGetTopLevelParent(this), fileEvt);
+}
+
+// ============================================================================
+// Filesystem watching
+// ============================================================================
+
+void FileTreePanel::StartWatching() {
+    delete m_watcher;
+    m_watcher = new wxFileSystemWatcher();
+    m_watcher->SetOwner(this);
+    m_watcher->AddTree(wxFileName::DirName(m_rootDir));
+}
+
+void FileTreePanel::OnFileSystemEvent(wxFileSystemWatcherEvent& evt) {
+    int type = evt.GetChangeType();
+    if (type == wxFSW_EVENT_ACCESS)
+        return;
+
+    // Handles CREATE, DELETE, RENAME, MODIFY and WARNING/ERROR
+    m_refreshTimer.StartOnce(200);
+}
+
+void FileTreePanel::OnRefreshTimer(wxTimerEvent&) {
+    m_pollTimer.Stop();
+    auto expanded = GetExpandedPaths();
+    SetRootDir(m_rootDir);
+    RestoreExpandedPaths(expanded);
+}
+
+void FileTreePanel::OnPollTimer(wxTimerEvent&) {
+    auto expanded = GetExpandedPaths();
+    SetRootDir(m_rootDir);
+    RestoreExpandedPaths(expanded);
+}
+
+std::vector<wxString> FileTreePanel::GetExpandedPaths() {
+    std::vector<wxString> paths;
+    auto root = m_tree->GetRootItem();
+    if (!root.IsOk()) return paths;
+
+    // BFS over visible tree items
+    std::vector<wxTreeItemId> stack = {root};
+    while (!stack.empty()) {
+        auto item = stack.back();
+        stack.pop_back();
+
+        if (item != root && m_tree->IsExpanded(item)) {
+            auto* data = dynamic_cast<ItemData*>(m_tree->GetItemData(item));
+            if (data && data->isDir)
+                paths.push_back(data->fullPath);
+        }
+
+        wxTreeItemIdValue cookie;
+        for (auto child = m_tree->GetFirstChild(item, cookie);
+             child.IsOk();
+             child = m_tree->GetNextChild(item, cookie)) {
+            stack.push_back(child);
+        }
+    }
+    return paths;
+}
+
+void FileTreePanel::RestoreExpandedPaths(const std::vector<wxString>& paths) {
+    if (paths.empty()) return;
+
+    // Use a set for O(1) lookup
+    std::set<wxString> pathSet(paths.begin(), paths.end());
+
+    auto root = m_tree->GetRootItem();
+    if (!root.IsOk()) return;
+
+    std::vector<wxTreeItemId> stack = {root};
+    while (!stack.empty()) {
+        auto item = stack.back();
+        stack.pop_back();
+
+        auto* data = dynamic_cast<ItemData*>(m_tree->GetItemData(item));
+        if (data && data->isDir && pathSet.count(data->fullPath)) {
+            m_tree->Expand(item);  // triggers OnItemExpanding for lazy-load
+        }
+
+        wxTreeItemIdValue cookie;
+        for (auto child = m_tree->GetFirstChild(item, cookie);
+             child.IsOk();
+             child = m_tree->GetNextChild(item, cookie)) {
+            stack.push_back(child);
+        }
+    }
 }
