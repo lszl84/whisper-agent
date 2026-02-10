@@ -7,7 +7,7 @@
 static constexpr int INITIAL_INTERVAL_MS   = 300;                      // first partial fires quickly
 static constexpr int STREAM_INTERVAL_MS    = 400;                      // subsequent partials
 static constexpr int MIN_SAMPLES           = WHISPER_SAMPLE_RATE / 4;  // need ≥0.25 s of audio
-static constexpr int MAX_PARTIAL_SAMPLES   = WHISPER_SAMPLE_RATE * 30; // 30 s sliding window for partials
+static constexpr int COMMIT_SAMPLES        = WHISPER_SAMPLE_RATE * 25; // commit chunk every 25 s
 static constexpr int SHUTDOWN_TIMEOUT_MS   = 200;                      // max wait for thread on shutdown
 
 static int inferenceThreadCount() {
@@ -95,6 +95,7 @@ void Transcriber::StartRecording() {
         std::lock_guard<std::mutex> lk(m_audioMutex);
         m_audioBuffer.clear();
     }
+    m_confirmedText.clear();
 
     ma_device_config cfg = ma_device_config_init(ma_device_type_capture);
     cfg.capture.format   = ma_format_f32;
@@ -192,6 +193,7 @@ void Transcriber::StreamingLoop() {
     }
 
     bool firstIter = true;
+    std::string lastPartialText;
 
     while (m_recording && !m_cancelled) {
         int interval = firstIter ? INITIAL_INTERVAL_MS : STREAM_INTERVAL_MS;
@@ -204,14 +206,25 @@ void Transcriber::StreamingLoop() {
         }
         if (!m_recording || m_cancelled) break;
 
-        // Snapshot the audio — use a sliding window to keep inference fast
+        // Snapshot the audio buffer.  When it exceeds the commit
+        // threshold, save the current partial text as confirmed and
+        // clear the buffer so inference stays fast.
         std::vector<float> audio;
         {
             std::lock_guard<std::mutex> lk(m_audioMutex);
-            size_t n     = m_audioBuffer.size();
-            size_t start = (n > static_cast<size_t>(MAX_PARTIAL_SAMPLES))
-                         ? n - MAX_PARTIAL_SAMPLES : 0;
-            audio.assign(m_audioBuffer.begin() + start, m_audioBuffer.end());
+
+            if (m_audioBuffer.size() > static_cast<size_t>(COMMIT_SAMPLES)
+                && !lastPartialText.empty())
+            {
+                if (m_confirmedText.empty())
+                    m_confirmedText = lastPartialText;
+                else
+                    m_confirmedText += " " + lastPartialText;
+                m_audioBuffer.clear();
+                lastPartialText.clear();
+            }
+
+            audio = m_audioBuffer;
         }
         if (static_cast<int>(audio.size()) < MIN_SAMPLES) continue;
 
@@ -219,9 +232,20 @@ void Transcriber::StreamingLoop() {
         std::string text = RunWhisper(audio, /*partial=*/true);
         if (m_abortInference || m_cancelled) break;  // aborted mid-inference
 
+        lastPartialText = text;
+
+        // Build full display: confirmed chunks + current partial
+        std::string displayText;
+        if (m_confirmedText.empty())
+            displayText = text;
+        else if (text.empty())
+            displayText = m_confirmedText;
+        else
+            displayText = m_confirmedText + " " + text;
+
         std::lock_guard<std::mutex> lk(m_cbMutex);
         if (m_callback)
-            m_callback(text, /*is_final=*/false);
+            m_callback(displayText, /*is_final=*/false);
     }
 
     // Signal that the thread is done so the destructor doesn't block.

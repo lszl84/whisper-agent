@@ -61,6 +61,8 @@ private:
     std::mutex              m_stopMutex;
     std::condition_variable m_stopCv;
 
+    std::string m_confirmedText;           // accumulated text from committed chunks
+
     std::function<void(const std::string&, bool)> m_callback;
     std::mutex                                    m_cbMutex;
 
