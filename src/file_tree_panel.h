@@ -22,7 +22,7 @@ private:
     void StartWatching();
     void OnFileSystemEvent(wxFileSystemWatcherEvent& evt);
     void OnRefreshTimer(wxTimerEvent& evt);
-    void OnPollTimer(wxTimerEvent& evt);
+    void OnRefreshClicked(wxCommandEvent& evt);
     std::vector<wxString> GetExpandedPaths();
     void RestoreExpandedPaths(const std::vector<wxString>& paths);
 
@@ -30,7 +30,6 @@ private:
     wxString               m_rootDir;
     wxFileSystemWatcher*   m_watcher = nullptr;
     wxTimer                m_refreshTimer;
-    wxTimer                m_pollTimer;
 
     // Per-item data stored via wxTreeItemData
     struct ItemData : public wxTreeItemData {

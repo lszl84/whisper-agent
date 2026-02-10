@@ -18,7 +18,6 @@ FileTreePanel::FileTreePanel(wxWindow* parent, const wxString& rootDir)
     : wxPanel(parent, wxID_ANY)
     , m_rootDir(rootDir)
     , m_refreshTimer(this)
-    , m_pollTimer(this)
 {
     SetBackgroundColour(wxColour(37, 37, 38));
 
@@ -31,16 +30,21 @@ FileTreePanel::FileTreePanel(wxWindow* parent, const wxString& rootDir)
     m_tree->SetBackgroundColour(wxColour(37, 37, 38));
     m_tree->SetForegroundColour(wxColour(204, 204, 204));
 
+    auto* refreshBtn = new wxButton(this, wxID_ANY, "Refresh");
+    refreshBtn->SetBackgroundColour(wxColour(50, 50, 52));
+    refreshBtn->SetForegroundColour(wxColour(204, 204, 204));
+
     auto* sizer = new wxBoxSizer(wxVERTICAL);
-    sizer->Add(label,  0, wxEXPAND | wxALL, 4);
-    sizer->Add(m_tree, 1, wxEXPAND);
+    sizer->Add(label,      0, wxEXPAND | wxALL, 4);
+    sizer->Add(m_tree,     1, wxEXPAND);
+    sizer->Add(refreshBtn, 0, wxEXPAND | wxALL, 4);
     SetSizer(sizer);
 
     m_tree->Bind(wxEVT_TREE_ITEM_EXPANDING,  &FileTreePanel::OnItemExpanding, this);
     m_tree->Bind(wxEVT_TREE_SEL_CHANGED,    &FileTreePanel::OnItemActivated, this);
     Bind(wxEVT_TIMER, &FileTreePanel::OnRefreshTimer, this, m_refreshTimer.GetId());
-    Bind(wxEVT_TIMER, &FileTreePanel::OnPollTimer, this, m_pollTimer.GetId());
     Bind(wxEVT_FSWATCHER, &FileTreePanel::OnFileSystemEvent, this);
+    refreshBtn->Bind(wxEVT_BUTTON, &FileTreePanel::OnRefreshClicked, this);
 
     SetRootDir(rootDir);
 }
@@ -55,7 +59,6 @@ void FileTreePanel::SetRootDir(const wxString& dir) {
     auto root = m_tree->AddRoot("root");
     PopulateChildren(root, dir);
     StartWatching();
-    m_pollTimer.Start(2000);
 }
 
 void FileTreePanel::PopulateChildren(const wxTreeItemId& parentItem, const wxString& path) {
@@ -140,13 +143,12 @@ void FileTreePanel::OnFileSystemEvent(wxFileSystemWatcherEvent& evt) {
 }
 
 void FileTreePanel::OnRefreshTimer(wxTimerEvent&) {
-    m_pollTimer.Stop();
     auto expanded = GetExpandedPaths();
     SetRootDir(m_rootDir);
     RestoreExpandedPaths(expanded);
 }
 
-void FileTreePanel::OnPollTimer(wxTimerEvent&) {
+void FileTreePanel::OnRefreshClicked(wxCommandEvent&) {
     auto expanded = GetExpandedPaths();
     SetRootDir(m_rootDir);
     RestoreExpandedPaths(expanded);
