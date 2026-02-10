@@ -88,7 +88,7 @@ endif()
 # Main executable
 # ============================================================================
 
-set(WHISPER_AGENT_DEFAULT_COMMAND "agent" CACHE STRING "Default command to run in the terminal")
+set(WHISPER_AGENT_DEFAULT_COMMAND "claude" CACHE STRING "Default command to run in the terminal")
 
 add_executable(whisper-agent
     src/main.cpp
