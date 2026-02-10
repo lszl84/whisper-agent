@@ -404,6 +404,7 @@ void MainFrame::CloseDialog() {
         m_dlg = nullptr;
     }
     m_recordBtn->Enable();
+    m_terminal->SetFocus();
 }
 
 // -------------------------------------------------------------------
@@ -413,6 +414,7 @@ void MainFrame::CloseDialog() {
 void MainFrame::OnFileSelected(wxCommandEvent& evt) {
     m_editor->LoadFile(evt.GetString());
     SetStatusText(evt.GetString(), 1);
+    m_terminal->SetFocus();
 }
 
 // -------------------------------------------------------------------
