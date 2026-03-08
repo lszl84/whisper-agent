@@ -20,7 +20,10 @@ private:
     void OnItemActivated(wxTreeEvent& evt);
 
     void StartWatching();
+    void WatchDir(const wxString& dir);
+    void UnwatchDir(const wxString& dir);
     void OnFileSystemEvent(wxFileSystemWatcherEvent& evt);
+    void OnItemCollapsed(wxTreeEvent& evt);
     void OnRefreshTimer(wxTimerEvent& evt);
     void OnRefreshClicked(wxCommandEvent& evt);
     std::vector<wxString> GetExpandedPaths();

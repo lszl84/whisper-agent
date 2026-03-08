@@ -41,6 +41,7 @@ FileTreePanel::FileTreePanel(wxWindow* parent, const wxString& rootDir)
     SetSizer(sizer);
 
     m_tree->Bind(wxEVT_TREE_ITEM_EXPANDING,  &FileTreePanel::OnItemExpanding, this);
+    m_tree->Bind(wxEVT_TREE_ITEM_COLLAPSED, &FileTreePanel::OnItemCollapsed, this);
     m_tree->Bind(wxEVT_TREE_SEL_CHANGED,    &FileTreePanel::OnItemActivated, this);
     Bind(wxEVT_TIMER, &FileTreePanel::OnRefreshTimer, this, m_refreshTimer.GetId());
     Bind(wxEVT_FSWATCHER, &FileTreePanel::OnFileSystemEvent, this);
@@ -111,6 +112,15 @@ void FileTreePanel::OnItemExpanding(wxTreeEvent& evt) {
     data->populated = true;
     m_tree->DeleteChildren(item);
     PopulateChildren(item, data->fullPath);
+    WatchDir(data->fullPath);
+}
+
+void FileTreePanel::OnItemCollapsed(wxTreeEvent& evt) {
+    auto item = evt.GetItem();
+    auto* data = dynamic_cast<ItemData*>(m_tree->GetItemData(item));
+    if (!data || !data->isDir) return;
+
+    UnwatchDir(data->fullPath);
 }
 
 void FileTreePanel::OnItemActivated(wxTreeEvent& evt) {
@@ -132,10 +142,22 @@ void FileTreePanel::StartWatching() {
     delete m_watcher;
     m_watcher = new wxFileSystemWatcher();
     m_watcher->SetOwner(this);
-    // AddTree may hit "already watched" asserts when symlinks cause the
-    // same real path to appear multiple times.  Suppress harmless asserts.
+    // Only watch the root directory itself (non-recursive).
+    // Subdirectories are watched on-demand as they are expanded.
+    WatchDir(m_rootDir);
+}
+
+void FileTreePanel::WatchDir(const wxString& dir) {
+    if (!m_watcher) return;
     auto prev = wxSetAssertHandler(nullptr);
-    m_watcher->AddTree(wxFileName::DirName(m_rootDir));
+    m_watcher->Add(wxFileName::DirName(dir));
+    wxSetAssertHandler(prev);
+}
+
+void FileTreePanel::UnwatchDir(const wxString& dir) {
+    if (!m_watcher) return;
+    auto prev = wxSetAssertHandler(nullptr);
+    m_watcher->Remove(wxFileName::DirName(dir));
     wxSetAssertHandler(prev);
 }
 
