@@ -132,7 +132,11 @@ void FileTreePanel::StartWatching() {
     delete m_watcher;
     m_watcher = new wxFileSystemWatcher();
     m_watcher->SetOwner(this);
+    // AddTree may hit "already watched" asserts when symlinks cause the
+    // same real path to appear multiple times.  Suppress harmless asserts.
+    auto prev = wxSetAssertHandler(nullptr);
     m_watcher->AddTree(wxFileName::DirName(m_rootDir));
+    wxSetAssertHandler(prev);
 }
 
 void FileTreePanel::OnFileSystemEvent(wxFileSystemWatcherEvent& evt) {
