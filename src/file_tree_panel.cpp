@@ -58,7 +58,9 @@ void FileTreePanel::SetRootDir(const wxString& dir) {
     m_tree->DeleteAllItems();
     auto root = m_tree->AddRoot("root");
     PopulateChildren(root, dir);
-    StartWatching();
+    // Defer watcher setup until the event loop is running (required by
+    // the inotify backend on Linux).
+    CallAfter([this]{ StartWatching(); });
 }
 
 void FileTreePanel::PopulateChildren(const wxTreeItemId& parentItem, const wxString& path) {
